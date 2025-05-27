@@ -60,6 +60,40 @@ poetry install
 poetry shell
 ```
 
+#### 2.4 (可选) 使用 uv 进行快速环境设置和依赖安装
+
+
+##### a. 安装 `uv` (如果尚未安装)
+
+请确保 `uv` 在您的 PATH 环境变量中。您可以运行 `uv --version` 来验证。
+
+##### b. 创建并激活虚拟环境
+
+进入 Python SDK 目录 (`python/`)，然后运行：
+```bash
+uv venv
+```
+这将创建一个名为 `.venv` 的虚拟环境。
+
+激活虚拟环境：
+*   macOS / Linux:
+    ```bash
+    source .venv/bin/activate
+    ```
+*   Windows:
+    ```bash
+    .venv\Scripts\activate
+    ```
+
+##### c. 安装项目依赖
+
+
+安装项目以及核心依赖：
+```bash
+uv pip install -e .
+```
+
+
 ### 3. 配置 API 密钥
 
 您需要设置 ZHIPU_API_KEY 环境变量。可以通过以下两种方式之一进行设置：
