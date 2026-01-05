@@ -13,6 +13,9 @@ python = ">=3.10"
 aiohttp = "*"
 pydantic = "*"
 python-dotenv = "^1.0.1"
+
+[tool.poetry.extras]
+audio = ["pyaudio"]
 [tool.poetry.dev-dependencies]
 ruff = "*"
 black = "*"

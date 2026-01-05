@@ -132,6 +132,14 @@ async def with_zhipu(audio_file_path: str):
                 return
 
             # 创建消息处理器
+            # 可选：启用音频播放功能，将响应音频通过扬声器播放
+            # message_handler = await create_message_handler(
+            #     client, shutdown_event,
+            #     enable_audio_playback=True,  # 启用音频播放
+            #     audio_sample_rate=24000,     # 24kHz采样率
+            #     audio_channels=1,            # 单声道
+            #     audio_sample_width=2,        # 16位
+            # )
             message_handler = await create_message_handler(client, shutdown_event)
 
             async def send_audio_with_commit():

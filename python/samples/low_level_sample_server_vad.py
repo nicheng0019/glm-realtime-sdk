@@ -122,7 +122,8 @@ async def with_zhipu(audio_file_path: str):
                     output_audio_format="pcm",
                     modalities={"audio", "text"},
                     turn_detection=ServerVAD(),
-                    beta_fields={"chat_mode": "audio", "tts_source": "e2e", "auto_search": False},
+                    voice="female-tianmei",
+                    beta_fields={"chat_mode": "audio", "tts_source": "e2e", "auto_search": True},
                     tools=[],
                 )
             )
@@ -132,7 +133,7 @@ async def with_zhipu(audio_file_path: str):
                 return
 
             # 创建消息处理器
-            message_handler = await create_message_handler(client, shutdown_event)
+            message_handler = await create_message_handler(client, shutdown_event,enable_audio_playback=True)
 
             # 创建发送和接收任务
             send_task = asyncio.create_task(send_audio(client, audio_file_path))

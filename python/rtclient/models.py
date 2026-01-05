@@ -46,7 +46,7 @@ MessageRole = Literal["system", "assistant", "user"]
 
 
 class InputAudioTranscription(BaseModel):
-    model: Literal["whisper-1"]
+    model: Literal["whisper-1", "standard"] = "whisper-1"
 
 
 class ClientMessageBase(ModelWithDefaults):
@@ -607,11 +607,11 @@ def create_message_from_dict(data: dict) -> ServerMessageType:
                 return InputAudioBufferClearedMessage(**data)
             case "conversation.created":
                 return ConversationCreatedMessage(**data)
-            case "conversation.item.created":
+            case "conversation.created":
                 return ItemCreatedMessage(**data)
-            case "conversation.item.input_audio_transcription.completed":
+            case "conversation.input_audio_transcription.completed":
                 return ItemInputAudioTranscriptionCompletedMessage(**data)
-            case "conversation.item.input_audio_transcription.failed":
+            case "conversation.input_audio_transcription.failed":
                 return ItemInputAudioTranscriptionFailedMessage(**data)
             case "response.created":
                 return ResponseCreatedMessage(**data)

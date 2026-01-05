@@ -15,18 +15,53 @@ from rtclient.models import (
     ItemCreateMessage,
 )
 
+try:
+    from audio_player import AudioPlayer
+except ImportError:
+    try:
+        from samples.audio_player import AudioPlayer
+    except ImportError:
+        AudioPlayer = None
+        print("警告: 无法导入AudioPlayer，音频播放功能将不可用")
+
 
 class MessageHandler:
-    def __init__(self, client: RTLowLevelClient, shutdown_event: Optional[asyncio.Event] = None):
+    def __init__(
+        self,
+        client: RTLowLevelClient,
+        shutdown_event: Optional[asyncio.Event] = None,
+        enable_audio_playback: bool = False,
+        audio_sample_rate: int = 24000,
+        audio_channels: int = 1,
+        audio_sample_width: int = 2,
+    ):
         """
         初始化消息处理器
         Args:
             client: WebSocket客户端实例
             shutdown_event: 关闭事件，用于控制消息接收的终止
+            enable_audio_playback: 是否启用音频播放功能
+            audio_sample_rate: 音频采样率 (默认24000Hz)
+            audio_channels: 音频声道数 (默认1=单声道)
+            audio_sample_width: 音频采样位深字节数 (默认2=16位)
         """
         self.client = client
         self.shutdown_event = shutdown_event
         self._custom_handlers: dict[str, Callable] = {}
+
+        # 音频播放器
+        self.audio_player: Optional[AudioPlayer] = None
+        if enable_audio_playback and AudioPlayer is not None:
+            try:
+                self.audio_player = AudioPlayer(
+                    sample_rate=audio_sample_rate,
+                    channels=audio_channels,
+                    sample_width=audio_sample_width,
+                )
+                print("音频播放功能已启用")
+            except Exception as e:
+                print(f"初始化音频播放器失败: {e}")
+                self.audio_player = None
 
     def register_handler(self, message_type: str, handler: Callable):
         """
@@ -40,15 +75,23 @@ class MessageHandler:
     async def _handle_function_call(self, message: Any):
         """处理函数调用消息"""
         print("函数调用参数完成消息")
-        print(f"  Response Id: {message.response_id}")
-        if hasattr(message, "name"):
-            print(f"  Function Name: {message.name}")
-        print(f"  Arguments: {message.arguments if message.arguments else 'None'}")
+        if isinstance(message, dict):
+            response_id = message.get("response_id", "Unknown")
+            name = message.get("name")
+            arguments = message.get("arguments")
+        else:
+            response_id = message.response_id if hasattr(message, "response_id") else "Unknown"
+            name = message.name if hasattr(message, "name") else None
+            arguments = message.arguments if hasattr(message, "arguments") else None
+        print(f"  Response Id: {response_id}")
+        if name:
+            print(f"  Function Name: {name}")
+        print(f"  Arguments: {arguments if arguments else 'None'}")
 
         # 如果是电话功能的函数调用，处理响应
-        if hasattr(message, "name") and message.name == "phoneCall":
+        if name == "phoneCall":
             try:
-                args = json.loads(message.arguments)
+                args = json.loads(arguments) if arguments else {}
                 response = {"status": "success", "message": f"成功拨打电话给 {args.get('contact_name', '未知姓名')}"}
                 await asyncio.sleep(1)
 
@@ -64,13 +107,22 @@ class MessageHandler:
         match msg_type:
             case "session.created":
                 print("会话创建消息")
-                print(f"  Session Id: {message.session.id}")
+                if isinstance(message, dict):
+                    print(f"  Session Id: {message.get('session', {}).get('id', 'Unknown')}")
+                elif hasattr(message, "session"):
+                    print(f"  Session Id: {message.session.id}")
             case "session.updated":
                 print("会话更新消息")
-                print(f"updated session: {message.session}")
+                if isinstance(message, dict):
+                    print(f"updated session: {message.get('session', {})}")
+                elif hasattr(message, "session"):
+                    print(f"updated session: {message.session}")
             case "error":
                 print("错误消息")
-                print(f"  Error: {message.error}")
+                if isinstance(message, dict):
+                    print(f"  Error: {message.get('error', 'Unknown error')}")
+                elif hasattr(message, "error"):
+                    print(f"  Error: {message.error}")
 
     async def _handle_audio_input_messages(self, message: Any, msg_type: str):
         """处理音频输入相关消息"""
@@ -87,36 +139,67 @@ class MessageHandler:
     async def _handle_conversation_messages(self, message: Any, msg_type: str):
         """处理会话项目相关消息"""
         match msg_type:
-            case "conversation.item.created":
+            case "conversation.created":
                 print("会话项目创建消息")
-            case "conversation.item.input_audio_transcription.completed":
+            case "conversation.input_audio_transcription.completed":
                 print("输入音频转写完成消息")
-                print(f"  Transcript: {message.transcript}")
+                if isinstance(message, dict):
+                    print(f"  Transcript: {message.get('transcript', 'N/A')}")
+                elif hasattr(message, "transcript"):
+                    print(f"  Transcript: {message.transcript}")
 
     async def _handle_response_messages(self, message: Any, msg_type: str):
         """处理响应相关消息"""
         match msg_type:
             case "response.created":
                 print("响应创建消息")
-                print(f"  Response Id: {message.response.id}")
+                if isinstance(message, dict):
+                    print(f"  Response Id: {message.get('response', {}).get('id', 'Unknown')}")
+                elif hasattr(message, "response"):
+                    print(f"  Response Id: {message.response.id}")
             case "response.done":
                 print("响应完成消息")
-                if hasattr(message, "response"):
+                if isinstance(message, dict):
+                    response = message.get("response", {})
+                    print(f"  Response Id: {response.get('id', 'Unknown')}")
+                    print(f"  Status: {response.get('status', 'Unknown')}")
+                elif hasattr(message, "response"):
                     print(f"  Response Id: {message.response.id}")
                     print(f"  Status: {message.response.status}")
             case "response.audio.delta":
                 print("模型音频增量消息")
-                print(f"  Response Id: {message.response_id}")
-                if message.delta:
-                    print(f"  Delta Length: {len(message.delta)}")
+                delta = None
+                if isinstance(message, dict):
+                    print(f"  Response Id: {message.get('response_id', 'Unknown')}")
+                    delta = message.get('delta')
+                    if delta:
+                        print(f"  Delta Length: {len(delta)}")
+                    else:
+                        print("  Delta: None")
                 else:
-                    print("  Delta: None")
+                    print(f"  Response Id: {message.response_id if hasattr(message, 'response_id') else 'Unknown'}")
+                    if hasattr(message, 'delta') and message.delta:
+                        delta = message.delta
+                        print(f"  Delta Length: {len(delta)}")
+                    else:
+                        print("  Delta: None")
+
+                # 播放音频数据
+                if delta and self.audio_player:
+                    try:
+                        self.audio_player.play_base64(delta)
+                    except Exception as e:
+                        print(f"播放音频失败: {e}")
             case "response.audio.done":
                 print("模型音频完成消息")
             case "response.audio_transcript.delta":
                 print("模型音频文本增量消息")
-                print(f"  Response Id: {message.response_id}")
-                print(f"  Delta: {message.delta if message.delta else 'None'}")
+                if isinstance(message, dict):
+                    print(f"  Response Id: {message.get('response_id', 'Unknown')}")
+                    print(f"  Delta: {message.get('delta', 'None')}")
+                else:
+                    print(f"  Response Id: {message.response_id if hasattr(message, 'response_id') else 'Unknown'}")
+                    print(f"  Delta: {message.delta if hasattr(message, 'delta') and message.delta else 'None'}")
             case "response.audio_transcript.done":
                 print("模型音频文本完成消息")
 
@@ -150,7 +233,7 @@ class MessageHandler:
                         await self._handle_session_messages(message, msg_type)
                     elif msg_type.startswith("input_audio_buffer."):
                         await self._handle_audio_input_messages(message, msg_type)
-                    elif msg_type.startswith("conversation.item."):
+                    elif msg_type.startswith("conversation."):
                         await self._handle_conversation_messages(message, msg_type)
                     elif msg_type.startswith("response."):
                         if msg_type == "response.function_call_arguments.done":
@@ -170,20 +253,40 @@ class MessageHandler:
                         print(f"接收消息时发生错误: {e}")
                     break
         finally:
+            # 停止音频播放器
+            if self.audio_player:
+                self.audio_player.stop()
+
             if not self.client.closed:
                 await self.client.close()
                 print("WebSocket连接已关闭")
 
 
 async def create_message_handler(
-    client: RTLowLevelClient, shutdown_event: Optional[asyncio.Event] = None
+    client: RTLowLevelClient,
+    shutdown_event: Optional[asyncio.Event] = None,
+    enable_audio_playback: bool = False,
+    audio_sample_rate: int = 24000,
+    audio_channels: int = 1,
+    audio_sample_width: int = 2,
 ) -> MessageHandler:
     """
     创建消息处理器实例
     Args:
         client: WebSocket客户端实例
         shutdown_event: 关闭事件
+        enable_audio_playback: 是否启用音频播放功能
+        audio_sample_rate: 音频采样率 (默认24000Hz)
+        audio_channels: 音频声道数 (默认1=单声道)
+        audio_sample_width: 音频采样位深字节数 (默认2=16位)
     Returns:
         MessageHandler实例
     """
-    return MessageHandler(client, shutdown_event)
+    return MessageHandler(
+        client,
+        shutdown_event,
+        enable_audio_playback=enable_audio_playback,
+        audio_sample_rate=audio_sample_rate,
+        audio_channels=audio_channels,
+        audio_sample_width=audio_sample_width,
+    )
