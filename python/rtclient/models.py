@@ -607,11 +607,11 @@ def create_message_from_dict(data: dict) -> ServerMessageType:
                 return InputAudioBufferClearedMessage(**data)
             case "conversation.created":
                 return ConversationCreatedMessage(**data)
-            case "conversation.created":
+            case "conversation.item.created":
                 return ItemCreatedMessage(**data)
-            case "conversation.input_audio_transcription.completed":
+            case "conversation.item.input_audio_transcription.completed":
                 return ItemInputAudioTranscriptionCompletedMessage(**data)
-            case "conversation.input_audio_transcription.failed":
+            case "conversation.item.input_audio_transcription.failed":
                 return ItemInputAudioTranscriptionFailedMessage(**data)
             case "response.created":
                 return ResponseCreatedMessage(**data)

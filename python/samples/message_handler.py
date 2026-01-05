@@ -6,6 +6,7 @@
 
 import asyncio
 import json
+import time
 from collections.abc import Callable
 from typing import Any, Optional
 
@@ -34,6 +35,8 @@ class MessageHandler:
         audio_sample_rate: int = 24000,
         audio_channels: int = 1,
         audio_sample_width: int = 2,
+        latency_stats=None,
+        session_ready_event: Optional[asyncio.Event] = None,
     ):
         """
         初始化消息处理器
@@ -44,10 +47,18 @@ class MessageHandler:
             audio_sample_rate: 音频采样率 (默认24000Hz)
             audio_channels: 音频声道数 (默认1=单声道)
             audio_sample_width: 音频采样位深字节数 (默认2=16位)
+            latency_stats: 延迟统计对象
+            session_ready_event: 会话准备就绪事件
         """
         self.client = client
         self.shutdown_event = shutdown_event
         self._custom_handlers: dict[str, Callable] = {}
+        self.latency_stats = latency_stats
+        self.session_ready_event = session_ready_event
+
+        # 用于跟踪文字响应到音频的时间
+        self.text_response_time: Optional[float] = None
+        self.first_audio_delta_time: Optional[float] = None
 
         # 音频播放器
         self.audio_player: Optional[AudioPlayer] = None
@@ -112,11 +123,17 @@ class MessageHandler:
                 elif hasattr(message, "session"):
                     print(f"  Session Id: {message.session.id}")
             case "session.updated":
-                print("会话更新消息")
+                print("✅ 会话更新消息 - 配置已完成")
                 if isinstance(message, dict):
                     print(f"updated session: {message.get('session', {})}")
                 elif hasattr(message, "session"):
                     print(f"updated session: {message.session}")
+
+                # 设置会话准备就绪事件
+                if self.session_ready_event:
+                    self.session_ready_event.set()
+                    print("🚀 会话已就绪，可以开始发送音频")
+
             case "error":
                 print("错误消息")
                 if isinstance(message, dict):
@@ -128,20 +145,20 @@ class MessageHandler:
         """处理音频输入相关消息"""
         match msg_type:
             case "input_audio_buffer.committed":
-                print("音频缓冲区提交消息")
+                print(f"[{time.strftime('%H:%M:%S')}] 音频缓冲区提交消息")
                 if hasattr(message, "item_id"):
                     print(f"  Item Id: {message.item_id}")
             case "input_audio_buffer.speech_started":
-                print("语音开始消息")
+                print(f"[{time.strftime('%H:%M:%S')}] ✓ 检测到语音开始")
             case "input_audio_buffer.speech_stopped":
-                print("语音结束消息")
+                print(f"[{time.strftime('%H:%M:%S')}] ✓ 检测到语音结束，等待响应...")
 
     async def _handle_conversation_messages(self, message: Any, msg_type: str):
         """处理会话项目相关消息"""
         match msg_type:
-            case "conversation.created":
+            case "conversation.item.created":
                 print("会话项目创建消息")
-            case "conversation.input_audio_transcription.completed":
+            case "conversation.item.input_audio_transcription.completed":
                 print("输入音频转写完成消息")
                 if isinstance(message, dict):
                     print(f"  Transcript: {message.get('transcript', 'N/A')}")
@@ -152,13 +169,16 @@ class MessageHandler:
         """处理响应相关消息"""
         match msg_type:
             case "response.created":
-                print("响应创建消息")
+                print(f"[{time.strftime('%H:%M:%S')}] ✓ 响应创建")
                 if isinstance(message, dict):
                     print(f"  Response Id: {message.get('response', {}).get('id', 'Unknown')}")
                 elif hasattr(message, "response"):
                     print(f"  Response Id: {message.response.id}")
+                # 重置计时器
+                self.text_response_time = None
+                self.first_audio_delta_time = None
             case "response.done":
-                print("响应完成消息")
+                print(f"[{time.strftime('%H:%M:%S')}] ✓ 响应完成")
                 if isinstance(message, dict):
                     response = message.get("response", {})
                     print(f"  Response Id: {response.get('id', 'Unknown')}")
@@ -168,21 +188,21 @@ class MessageHandler:
                     print(f"  Status: {message.response.status}")
             case "response.audio.delta":
                 print("模型音频增量消息")
+                # 记录第一个音频数据包的时间
+                if self.first_audio_delta_time is None and self.text_response_time is not None:
+                    self.first_audio_delta_time = time.time() * 1000
+                    latency = self.first_audio_delta_time - self.text_response_time
+                    if self.latency_stats:
+                        self.latency_stats.add_text_to_audio(latency)
+                    print(f"  ⏱️  文字到音频延迟: {latency:.2f}ms")
+
+                # 不打印每个音频增量，避免刷屏
                 delta = None
                 if isinstance(message, dict):
-                    print(f"  Response Id: {message.get('response_id', 'Unknown')}")
                     delta = message.get('delta')
-                    if delta:
-                        print(f"  Delta Length: {len(delta)}")
-                    else:
-                        print("  Delta: None")
                 else:
-                    print(f"  Response Id: {message.response_id if hasattr(message, 'response_id') else 'Unknown'}")
                     if hasattr(message, 'delta') and message.delta:
                         delta = message.delta
-                        print(f"  Delta Length: {len(delta)}")
-                    else:
-                        print("  Delta: None")
 
                 # 播放音频数据
                 if delta and self.audio_player:
@@ -191,8 +211,12 @@ class MessageHandler:
                     except Exception as e:
                         print(f"播放音频失败: {e}")
             case "response.audio.done":
-                print("模型音频完成消息")
+                print(f"[{time.strftime('%H:%M:%S')}] ✓ 音频播放完成")
             case "response.audio_transcript.delta":
+                # 记录文字响应时间
+                if self.text_response_time is None:
+                    self.text_response_time = time.time() * 1000
+
                 print("模型音频文本增量消息")
                 if isinstance(message, dict):
                     print(f"  Response Id: {message.get('response_id', 'Unknown')}")
@@ -269,6 +293,8 @@ async def create_message_handler(
     audio_sample_rate: int = 24000,
     audio_channels: int = 1,
     audio_sample_width: int = 2,
+    latency_stats=None,
+    session_ready_event: Optional[asyncio.Event] = None,
 ) -> MessageHandler:
     """
     创建消息处理器实例
@@ -279,6 +305,8 @@ async def create_message_handler(
         audio_sample_rate: 音频采样率 (默认24000Hz)
         audio_channels: 音频声道数 (默认1=单声道)
         audio_sample_width: 音频采样位深字节数 (默认2=16位)
+        latency_stats: 延迟统计对象
+        session_ready_event: 会话准备就绪事件
     Returns:
         MessageHandler实例
     """
@@ -289,4 +317,6 @@ async def create_message_handler(
         audio_sample_rate=audio_sample_rate,
         audio_channels=audio_channels,
         audio_sample_width=audio_sample_width,
+        latency_stats=latency_stats,
+        session_ready_event=session_ready_event,
     )
