@@ -303,7 +303,7 @@ if __name__ == "__main__":
     load_dotenv()
 
     # 默认音频文件路径
-    default_audio_file = r"D:\course\langchain_demo\glm-realtime-sdk\python\samples\input\give_me_a_joke.wav"
+    default_audio_file = r".\samples\input\give_me_a_joke.wav"
 
     # 解析命令行参数
     parser = argparse.ArgumentParser(description="实时语音对话程序（从文件输入）")
