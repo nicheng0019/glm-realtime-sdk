@@ -159,7 +159,7 @@ class MessageHandler:
             case "conversation.item.created":
                 print("会话项目创建消息")
             case "conversation.item.input_audio_transcription.completed":
-                print("输入音频转写完成消息")
+                print(f"[{time.strftime('%H:%M:%S')}] 输入音频转写完成消息")
                 if isinstance(message, dict):
                     print(f"  Transcript: {message.get('transcript', 'N/A')}")
                 elif hasattr(message, "transcript"):
@@ -187,7 +187,7 @@ class MessageHandler:
                     print(f"  Response Id: {message.response.id}")
                     print(f"  Status: {message.response.status}")
             case "response.audio.delta":
-                print("模型音频增量消息")
+                print(f"[{time.strftime('%H:%M:%S')}] 模型音频增量消息")
                 # 记录第一个音频数据包的时间
                 if self.first_audio_delta_time is None and self.text_response_time is not None:
                     self.first_audio_delta_time = time.time() * 1000
@@ -217,7 +217,7 @@ class MessageHandler:
                 if self.text_response_time is None:
                     self.text_response_time = time.time() * 1000
 
-                print("模型音频文本增量消息")
+                print(f"[{time.strftime('%H:%M:%S')}] 模型音频文本增量消息")
                 if isinstance(message, dict):
                     print(f"  Response Id: {message.get('response_id', 'Unknown')}")
                     print(f"  Delta: {message.get('delta', 'None')}")
